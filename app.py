@@ -41,10 +41,11 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import datetime
 
 # 🗄️ Database Configuration
-DB_HOST = os.environ.get("DB_HOST", "localhost")
-DB_USER = os.environ.get("DB_USER", "root")
-DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
-DB_NAME = os.environ.get("DB_NAME", "localsend_db")
+DB_HOST = os.environ.get("DB_HOST", "localsend-db-localsend.f.aivencloud.com")
+DB_USER = os.environ.get("DB_USER", "avnadmin")
+DB_PASSWORD = os.environ.get("DB_PASSWORD", "AVNS_aMElQYXE0nzEFRcorBP")
+DB_NAME = os.environ.get("DB_NAME", "defaultdb")
+DB_PORT = int(os.environ.get("DB_PORT", 13943))
 
 def get_db_connection():
     try:
@@ -52,7 +53,9 @@ def get_db_connection():
             host=DB_HOST,
             user=DB_USER,
             password=DB_PASSWORD,
-            database=DB_NAME
+            database=DB_NAME,
+            port=DB_PORT,
+            ssl_ca=os.path.join(base_dir, "ca.pem")
         )
         return connection
     except Error as e:
@@ -66,7 +69,9 @@ def init_db():
         conn = mysql.connector.connect(
             host=DB_HOST,
             user=DB_USER,
-            password=DB_PASSWORD
+            password=DB_PASSWORD,
+            port=DB_PORT,
+            ssl_ca=os.path.join(base_dir, "ca.pem")
         )
         cursor = conn.cursor()
         cursor.execute(f"CREATE DATABASE IF NOT EXISTS {DB_NAME}")
