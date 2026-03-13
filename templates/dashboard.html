@@ -1,0 +1,1547 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Local Send</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link href="https://fonts.googleapis.com/css?family=Orbitron:700&display=swap" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+  <meta name="theme-color" content="#00f3ff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+</head>
+
+<body>
+
+  <!-- Futuristic Navbar -->
+  <nav class="navbar">
+    <div class="navbar-brand">
+      <a href="{{ url_for('index') }}" style="text-decoration: none; display: flex; align-items: center;">
+        <span class="brand-logo">🖥️</span>
+        <span class="brand-name">Local Send</span>
+      </a>
+    </div>
+    <div class="navbar-tabs">
+      {% if not is_network_client %}
+      <button class="nav-tab active" onclick="openTab(event, 'local-share')">Local Share</button>
+     
+      <button class="nav-tab" onclick="openTab(event, 'ott')">OTT</button>
+      {% endif %}
+    </div>
+    <div class="navbar-actions">
+      {% if not is_network_client %}
+      <button class="nav-btn" onclick="openNetworkModal()">👥 Network</button>
+      {% endif %}
+      <button class="nav-btn" onclick="openQrModal()">📱 Connect via QR</button>
+      <div class="profile-dropdown">
+        <button class="profile-btn">
+          {% if avatar_url %}
+          <img src="{{ avatar_url }}" class="profile-avatar-nav" alt="Profile">
+          {% else %}
+          👤
+          {% endif %}
+          {{ username }}
+        </button>
+        <div id="profileDropdown" class="dropdown-content">
+          <button onclick="openProfileModal()" class="dropdown-item"
+            style="background:none; border:none; width:100%; text-align:left; cursor:pointer; font-family:inherit; font-size:inherit;">⚙️
+            Settings</button>
+          <a href="{{ url_for('logout') }}" class="dropdown-item">Sign Out</a>
+        </div>
+      </div>
+    </div>
+
+  </nav>
+
+  <!-- Tab Content: Local Share -->
+  <div id="local-share" class="tab-content">
+    <div class="filter-bar">
+      {% if not is_network_client or sharing_enabled %}
+      <!-- ... filters ... -->
+      <button class="filter-btn active" onclick="filterFiles('all')">All</button>
+      <button class="filter-btn" onclick="filterFiles('image')">Images</button>
+      <button class="filter-btn" onclick="filterFiles('video')">Videos</button>
+      <button class="filter-btn" onclick="filterFiles('audio')">Audio</button>
+      <button class="filter-btn" onclick="filterFiles('app')">Apps</button>
+      <button class="filter-btn" onclick="filterFiles('pdf')">Docs</button>
+      {% endif %}
+      <button class="upload-trigger-btn" onclick="openUploadModal()">📤 Upload</button>
+    </div>
+
+    <!-- 📝 Shared Clipboard Section -->
+    <section class="clipboard-section"
+      style="margin-bottom: 30px; padding: 20px; background: rgba(255, 255, 255, 0.05); border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.1);">
+      <h3 style="margin-top: 0; color: #00ffe7; margin-bottom: 15px;">📝 Shared Clipboard</h3>
+
+      {% if not is_network_client %}
+      <!-- Host View -->
+      <div style="display: flex; gap: 10px; flex-direction: column;">
+        <textarea id="hostText" rows="4" placeholder="Type text here to share instantly..."
+          style="width: 100%; padding: 10px; border-top: none; border-left: none; border-right: none; 
+                       border-bottom: 2px solid #00ffe7; background: transparent; color: white; outline: none; resize: vertical; font-family: inherit;">{{ shared_text }}</textarea>
+        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+          <button onclick="shareText('')" class="secondary-btn"
+            style="padding: 8px 15px; font-size: 0.9em;">Clear</button>
+          <button onclick="shareText(document.getElementById('hostText').value)" class="cta-btn"
+            style="padding: 8px 15px; font-size: 0.9em;">✉️ Share Text</button>
+        </div>
+        <p id="shareStatus"
+          style="font-size: 0.8em; color: #00ff00; margin: 0; text-align: right; opacity: 0; transition: opacity 0.3s;">
+        </p>
+      </div>
+      {% else %}
+      <!-- Client View -->
+      {% if sharing_enabled %}
+      <div style="display: flex; flex-direction: column; gap: 15px;">
+        <div style="position: relative;">
+          <p style="font-size: 0.8em; color: #aaa; margin-bottom: 5px;">Shared from Host:</p>
+          <div id="clientTextDisplay"
+            style="width: 100%; min-height: 60px; padding: 15px; background: rgba(0, 0, 0, 0.3); 
+                            border-radius: 5px; color: #fff; white-space: pre-wrap; word-break: break-word; border-left: 3px solid #00ffe7;">{{
+            shared_text if shared_text else 'No text shared yet...' }}</div>
+        </div>
+        <button onclick="copySharedText()" class="cta-btn"
+          style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;">
+          📋 Copy Text
+        </button>
+      </div>
+      {% else %}
+      <p style="color: #ff4d4d;">🚫 Clipboard sharing is disabled.</p>
+      {% endif %}
+      {% endif %}
+    </section>
+
+    <section class="file-gallery">
+      {% if is_network_client and not sharing_enabled %}
+      <div class="sharing-disabled-msg" style="text-align: center; width: 100%; padding: 50px; color: #ff4d4d;">
+        <h2>🚫 Sharing Disabled</h2>
+        <p>The host has currently disabled file sharing.</p>
+      </div>
+      {% else %}
+      {% for file in files %}
+      <div class="file-card" data-type="{{ file.type }}" data-extension="{{ file.extension }}">
+        {% if file.type == 'image' %}
+        <img src="{{ url_for('view_file', filename=file.name) }}" alt="{{ file.name }}" loading="lazy">
+        {% elif file.type == 'pdf' %}
+        <iframe src="{{ url_for('view_file', filename=file.name) }}" title="PDF preview" frameborder="0"></iframe>
+        {% elif file.type == 'video' %}
+        {% if file.name.endswith('.mkv') %}
+        <div class="fallback-preview">
+          <p class="unsupported">MKV preview not supported</p>
+          <a href="{{ url_for('download_file', filename=file.name) }}" class="download-btn">Download MKV</a>
+        </div>
+        {% else %}
+        <video controls preload="metadata">
+          <source src="{{ url_for('view_file', filename=file.name) }}" type="video/mp4">
+          Your browser does not support the video tag.
+        </video>
+        {% endif %}
+        {% elif file.type == 'audio' %}
+        <audio controls preload="none">
+          <source src="{{ url_for('view_file', filename=file.name) }}" type="audio/mpeg">
+          Your browser does not support the audio tag.
+        </audio>
+        {% elif file.type == 'app' %}
+        <div class="app-icon">📦</div>
+        {% else %}
+        <div class="file-icon">📄</div>
+        {% endif %}
+        <div class="file-info">
+          <span class="file-name">{{ file.name }}</span>
+        </div>
+        <div class="card-actions">
+          <a href="{{ url_for('download_file', filename=file.name) }}" class="download-btn">⬇️ Download</a>
+          {% if file.type == 'image' %}
+          <button class="preview-btn" onclick="openModal('{{ url_for('view_file', filename=file.name) }}')">👁️
+            Preview</button>
+          {% endif %}
+          {% if not is_network_client %}
+          <button class="delete-btn" onclick="deleteFile('{{ file.name }}')"
+            style="background:none; border:none; cursor:pointer; font-size:1.2em; margin-left:10px;"
+            title="Delete File">🗑️</button>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+      {% endif %}
+    </section>
+    </section>
+
+
+
+  </div>
+
+  <!-- Tab Content: OTT -->
+  <div id="ott" class="tab-content" style="display:none;">
+    <!-- Hero Section -->
+    <!-- <div class="ott-hero"
+      style="background-image: url('https://image.tmdb.org/t/p/original/56v2KjBlU4XaOv9rVYkJu64COcfe.jpg');">
+      <div class="hero-overlay"></div>
+      <div class="hero-content">
+        <h1>Stranger Things</h1>
+        <p class="hero-desc">When a young boy vanishes, a small town uncovers a mystery involving secret experiments,
+          terrifying supernatural forces, and one strange little girl.</p>
+        <div class="hero-btns">
+          <button class="play-btn">▶ Play</button>
+          <button class="info-btn">ℹ More Info</button>
+        </div>
+      </div>
+    </div> -->
+
+    <!-- Categories -->
+    <div class="ott-rows-container">
+
+      <div class="category-row">
+        <h3>Trending Now</h3>
+        <div class="movie-row">
+          <div class="movie-card"><img src="https://image.tmdb.org/t/p/w500/q6y0Go1tsGEsmtFryDOJo3dEmqu.jpg"
+              alt="Wolf of Wall Street"></div>
+          <div class="movie-card"><img src="https://image.tmdb.org/t/p/w500/pB8BM7pdSp6B6Ih7Qf4n618UZvv.jpg"
+              alt="Movie"></div>
+          <div class="movie-card"><img src="https://image.tmdb.org/t/p/w500/isqsi9uz2dV2v1ofXHRGX7nF6F0.jpg"
+              alt="Movie"></div>
+          <div class="movie-card"><img src="https://image.tmdb.org/t/p/w500/jRXYjXNq0Cs2TcJjLkki24MLp7u.jpg"
+              alt="Movie"></div>
+          <div class="movie-card"><img src="https://image.tmdb.org/t/p/w500/r7e1EZuG1BWsuQKFp4lTR4yTAbq.jpg"
+              alt="Movie"></div>
+          <div class="movie-card"><img src="https://image.tmdb.org/t/p/w500/mz1PgTOZwkYMI3uyGPTt5SFIm2w.jpg"
+              alt="Movie"></div>
+        </div>
+      </div>
+
+      <div class="category-row">
+        <h3>New Releases</h3>
+        <div class="movie-row">
+          <div class="movie-card"><img src="https://image.tmdb.org/t/p/w500/1E5baAaEse26fej7uHcjOgEE2t2.jpg"
+              alt="Movie"></div>
+          <div class="movie-card"><img src="https://image.tmdb.org/t/p/w500/jjHccoFjbXsu4cfTggqWAdIIWAA.jpg"
+              alt="Movie"></div>
+          <div class="movie-card"><img src="https://image.tmdb.org/t/p/w500/d5NXSklXo0qyLXU839YChhDtT9u.jpg"
+              alt="Movie"></div>
+          <div class="movie-card"><img src="https://image.tmdb.org/t/p/w500/8c4a8kE7PizaGQQnditMmI1xbRp.jpg"
+              alt="Movie"></div>
+          <div class="movie-card"><img src="https://image.tmdb.org/t/p/w500/t6HIqrRAclMCA60NsSmeqe9RmNV.jpg"
+              alt="Movie"></div>
+          <div class="movie-card"><img src="https://image.tmdb.org/t/p/w500/b0MxU37dNogXlxGguHCLeTKfIIP.jpg"
+              alt="Movie"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Tab Content: Remote Share -->
+  <div id="wan-share" class="tab-content" style="display:none;">
+    <div class="wan-container" style="padding: 20px; max-width: 900px; margin: 0 auto;">
+
+      <!-- HEADER -->
+      <div style="text-align: center; margin-bottom: 30px;">
+        <h2 style="color: #00ffe7; margin-bottom: 10px;">🌍 Zero-Config World Share</h2>
+        <p style="color: #ccc;">Secure P2P File Transfer • No Setup Required • Works Everywhere</p>
+      </div>
+
+      <!-- CONNECTION PANEL -->
+      <div id="wan-connection-panel" style="display: flex; flex-wrap: wrap; gap: 20px; justify-content: center;">
+
+        <!-- SENDER CARD -->
+        <div class="wan-card"
+          style="flex: 1; min-width: 300px; background: rgba(0,0,0,0.5); border: 1px solid #333; padding: 25px; text-align: center;">
+          <h3 style="color: #00ff99;">📤 Send Files</h3>
+          <p style="font-size: 0.9em; color: #888; margin-bottom: 20px;">Generate a code for your receiver.</p>
+          <div id="sender-ui-initial">
+            <button class="cta-btn" onclick="wanInitSender()"
+              style="width: 100%; padding: 12px; font-size: 1.1em;">Generate 6-Digit Code</button>
+          </div>
+          <div id="sender-ui-waiting" style="display: none;">
+            <div
+              style="font-size: 2.5em; font-weight: bold; color: #fff; letter-spacing: 5px; background: rgba(255,255,255,0.1); padding: 10px; margin: 20px 0; border-radius: 5px; font-family: monospace;"
+              id="wan-room-code">------</div>
+            <p class="blink" style="color:#00ff99">📡 Waiting for receiver to connect...</p>
+            <p style="font-size:0.8em; color:#666">Share this code with your friend.</p>
+          </div>
+        </div>
+
+        <!-- RECEIVER CARD -->
+        <div class="wan-card"
+          style="flex: 1; min-width: 300px; background: rgba(0,0,0,0.5); border: 1px solid #333; padding: 25px; text-align: center;">
+          <h3 style="color: #0099ff;">📥 Receive Files</h3>
+          <p style="font-size: 0.9em; color: #888; margin-bottom: 20px;">Enter the code from the sender.</p>
+          <input type="text" id="wan-input-code" placeholder="Enter 6-Digit Code" maxlength="6"
+            style="width: 100%; padding: 12px; text-align: center; font-size: 1.2em; border: 1px solid #444; background: #222; color: white; margin-bottom: 20px; border-radius: 5px;">
+          <button class="cta-btn" onclick="wanInitReceiver()"
+            style="background: #0099ff; width: 100%; padding: 12px; font-size: 1.1em;">Connect & Receive</button>
+        </div>
+
+      </div>
+
+      <!-- CONNECTED PANEL -->
+      <div id="wan-connected-panel" style="display: none; width: 100%;">
+
+        <div
+          style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,255,231,0.1); padding: 15px; border-radius: 8px; border: 1px solid #00ffe7; margin-bottom: 20px;">
+          <div>
+            <span style="color: #00ffe7; font-weight: bold; font-size: 1.2em;">🟢 Securely Connected</span>
+            <div style="font-size: 0.8em; color: #aaa; margin-top: 5px;">Via WebRTC Tunnel • Encrypted</div>
+          </div>
+          <button onclick="location.reload()" class="secondary-btn" style="padding: 5px 15px;">Disconnect</button>
+        </div>
+
+        <!-- DROP ZONE -->
+        <div id="wan-drop-zone" class="upload-drop-zone"
+          style="border: 2px dashed #444; padding: 40px; text-align: center; margin-bottom: 20px; transition: 0.3s; cursor: pointer;">
+          <div style="font-size: 3rem; margin-bottom: 10px;">☁️</div>
+          <h3>Drag & Drop Files Here</h3>
+          <p style="color: #666;">or click to browse</p>
+          <input type="file" id="wan-file-input" multiple style="display: none;">
+        </div>
+
+        <!-- TRANSFERS -->
+        <div class="transfer-list">
+          <h4 style="margin-bottom: 15px; border-bottom: 1px solid #333; padding-bottom: 10px;">Live Transfers</h4>
+          <div id="wan-transfers-container" style="display: flex; flex-direction: column; gap: 10px;">
+            <p id="no-transfers" style="color: #555; text-align: center; padding: 20px;">No active transfers</p>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- LOGS -->
+      <div id="wan-status-msg" style="text-align: center; margin-top: 20px; color: #aaa; font-style: italic;"></div>
+
+    </div>
+  </div>
+
+  </div>
+  </div>
+
+  <!-- Incoming Request Modal -->
+
+
+  <style>
+    /* Switch styles */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 34px;
+      height: 20px;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      -webkit-transition: .4s;
+      transition: .4s;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 12px;
+      width: 12px;
+      left: 4px;
+      bottom: 4px;
+      background-color: white;
+      -webkit-transition: .4s;
+      transition: .4s;
+    }
+
+    input:checked+.slider {
+      background-color: var(--accent);
+    }
+
+    input:focus+.slider {
+      box-shadow: 0 0 1px var(--accent);
+    }
+
+    input:checked+.slider:before {
+      -webkit-transform: translateX(14px);
+      -ms-transform: translateX(14px);
+      transform: translateX(14px);
+    }
+
+    .slider.round {
+      border-radius: 34px;
+    }
+
+    .slider.round:before {
+      border-radius: 50%;
+    }
+
+    /* Responsive Improvements */
+    @media (max-width: 768px) {
+      .network-grid {
+        grid-template-columns: 1fr !important;
+      }
+
+      .monitor-card {
+        width: 100%;
+      }
+
+      .modal .upload-content {
+        width: 95% !important;
+        padding: 15px !important;
+      }
+
+      .peer-badge {
+        width: 100%;
+        justify-content: space-between;
+      }
+    }
+  </style>
+
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <script>
+    // --- SOCKET.IO SIGNALING LOGIC (Using Local Server) ---
+
+    const socket = io();
+
+    const ICE_SERVERS = {
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        {
+          urls: "turn:relay.metered.ca:80",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        },
+        {
+          urls: "turn:relay.metered.ca:443",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        },
+        {
+          urls: "turn:relay.metered.ca:443?transport=tcp",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        }
+      ],
+      iceCandidatePoolSize: 10
+    };
+
+    // State
+    // let mqttClient = null; // Removed
+    let wanCode = null;
+    let wanRole = null; // 'sender' | 'receiver'
+    let pc = null;
+    let dataChannel = null;
+
+    // UI Refs
+    const uiStatus = document.getElementById('wan-status-msg');
+
+    function setWanStatus(msg) {
+      uiStatus.textContent = msg;
+      console.log("[WAN]", msg);
+    }
+
+    // 1. Initialize Sender
+    function wanInitSender() {
+      // Generate Code
+      wanCode = Math.floor(100000 + Math.random() * 900000).toString();
+      wanRole = 'sender';
+
+      document.getElementById('wan-room-code').textContent = wanCode;
+      document.getElementById('sender-ui-initial').style.display = 'none';
+      document.getElementById('sender-ui-waiting').style.display = 'block';
+
+      connectSignaling();
+    }
+
+    // 2. Initialize Receiver
+    function wanInitReceiver() {
+      const code = document.getElementById('wan-input-code').value.trim();
+      if (code.length !== 6) return alert("Please enter a valid 6-digit code.");
+
+      wanCode = code;
+      wanRole = 'receiver';
+
+      connectSignaling();
+    }
+
+    // 3. Connect to Public MQTT Broker
+    function connectSignaling() {
+      setWanStatus("🔌 Connecting to Local Signaling Server...");
+
+      // Join the room
+      socket.emit('join', { room: wanCode });
+      setWanStatus("✅ Joined Room " + wanCode + ". Waiting for peer...");
+
+      // Setup Listeners once
+      setupSocketListeners();
+
+      // If receiver, announce presence
+      if (wanRole === 'receiver') {
+        sendSignal({ type: 'hello' });
+      }
+    }
+
+    function setupSocketListeners() {
+      socket.off('ready'); // Remove old listeners to avoid duplicates
+      socket.off('signal');
+
+      socket.on('ready', (data) => {
+        console.log("Peer Joined:", data);
+        // If I am sender, and peer joins -> Offer
+        if (wanRole === 'sender') {
+          setWanStatus("🤝 Peer joined! Negotiating...");
+          startWebRTC();
+          // Note: startWebRTC will create offer if I am sender
+        }
+      });
+
+      socket.on('signal', (data) => {
+        handleSignalMessage(data);
+      });
+    }
+
+    function sendSignal(data) {
+      data.room = wanCode;
+      socket.emit('signal', data);
+    }
+
+
+
+    // 4. Signaling Logic
+    async function handleSignalMessage(msg) {
+      console.log("Recieved Signal:", msg.type);
+
+      try {
+        if (!pc) startWebRTC();
+
+        if (msg.type === 'hello') {
+          // Already handled by startWebRTC check
+        }
+        else if (msg.type === 'offer' && wanRole === 'receiver') {
+          if (!pc) startWebRTC();
+          setWanStatus("📩 Received Offer. Creating Answer...");
+          await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          sendSignal({ type: 'answer', sdp: answer });
+        }
+        else if (msg.type === 'answer' && wanRole === 'sender') {
+          setWanStatus("📩 Received Answer. Finalizing...");
+          await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+        }
+        else if (msg.type === 'candidate') {
+          if (!pc) startWebRTC();
+          if (msg.candidate) {
+            await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+          }
+        }
+      } catch (e) {
+        console.error("Signaling Error", e);
+        setWanStatus("❌ Error: " + e.message);
+      }
+    }
+
+    // 5. WebRTC Core
+    function startWebRTC() {
+      pc = new RTCPeerConnection(ICE_SERVERS);
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          console.log("ICE Candidate found:", event.candidate.candidate);
+          sendSignal({ type: 'candidate', candidate: event.candidate });
+        } else {
+          console.log("ICE Gathering Complete");
+        }
+      };
+
+      pc.onicegatheringstatechange = () => {
+        console.log("ICE Gathering State:", pc.iceGatheringState);
+        if (pc.iceGatheringState === 'gathering') {
+          setWanStatus("🔍 Searching for network paths (ICE)...");
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        const state = pc.connectionState;
+        setWanStatus(`🔗 Connection State: ${state.toUpperCase()}`);
+        if (state === 'connected') {
+          onWanConnected();
+        } else if (state === 'disconnected' || state === 'failed') {
+          setWanStatus("❌ Peer Disconnected. Refresh to retry.");
+        }
+      };
+
+      if (wanRole === 'sender') {
+        // Sender creates data channel
+        dataChannel = pc.createDataChannel("filetransfer");
+        setupDataChannel(dataChannel);
+
+        // Create Offer NOW that channel is open
+        createOffer();
+      } else {
+        // Receiver waits for data channel
+        pc.ondatachannel = (event) => {
+          dataChannel = event.channel;
+          setupDataChannel(dataChannel);
+        };
+      }
+    }
+
+    function onWanConnected() {
+      document.getElementById('wan-connection-panel').style.display = 'none';
+      document.getElementById('wan-connected-panel').style.display = 'block';
+
+      // Disconnect MQTT to save resources/privacy (optional, but good practice)
+      // mqttClient.end(); 
+      // Actually keep it open in case of re-negotiation or just close it?
+      // For simple file transfer, we can close it.
+      // mqttClient.end(); 
+      // Let's keep it open for now in case we add chat later.
+      setWanStatus("🚀 Ready to transfer!");
+    }
+
+    function setupDataChannel(channel) {
+      channel.onopen = () => setWanStatus("🟢 Data Channel OPEN");
+      channel.onmessage = handleDataMessage;
+    }
+
+    // --- File Transfer Logic (Chunking) ---
+    const CHUNK_SIZE = 16 * 1024; // 16KB
+    let incomingFile = {}; // id -> { buffer, size, name, received }
+
+    function handleDataMessage(event) {
+      const data = event.data;
+
+      // If string -> Metadata
+      if (typeof data === 'string') {
+        const meta = JSON.parse(data);
+        if (meta.type === 'start') {
+          incomingFile = {
+            id: meta.id,
+            name: meta.name,
+            size: meta.size,
+            received: 0,
+            buffer: [],
+            startTime: Date.now()
+          };
+          createTransferUI(meta.id, meta.name, meta.size, 'in');
+        }
+        return;
+      }
+
+      // If binary -> Chunk
+      if (!incomingFile.id) return; // Error state
+
+      incomingFile.buffer.push(data);
+      incomingFile.received += data.byteLength;
+      updateTransferProgress(incomingFile.id, incomingFile.received, incomingFile.size);
+
+      if (incomingFile.received >= incomingFile.size) {
+        saveReceivedFile();
+        incomingFile = {}; // Reset
+      }
+    }
+
+    function saveReceivedFile() {
+      const blob = new Blob(incomingFile.buffer);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = incomingFile.name;
+      a.click();
+
+      markTransferComplete(incomingFile.id);
+    }
+
+    // --- Sending Logic ---
+    const dropZone = document.getElementById('wan-drop-zone');
+    const fileInput = document.getElementById('wan-file-input');
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.background = 'rgba(255,255,255,0.1)'; });
+    dropZone.addEventListener('dragleave', () => { dropZone.style.background = ''; });
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.style.background = '';
+      handleFiles(e.dataTransfer.files);
+    });
+
+    fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+    function handleFiles(files) {
+      if (!dataChannel || dataChannel.readyState !== 'open') return alert("Wait for connection!");
+      Array.from(files).forEach(sendFile);
+    }
+
+    async function sendFile(file) {
+      const fileId = Math.random().toString(36).substr(2, 9);
+      createTransferUI(fileId, file.name, file.size, 'out');
+
+      // 1. Send Metadata
+      dataChannel.send(JSON.stringify({
+        type: 'start',
+        id: fileId,
+        name: file.name,
+        size: file.size
+      }));
+
+      // 2. Send Chunks
+      const buffer = await file.arrayBuffer();
+      let offset = 0;
+
+      while (offset < buffer.byteLength) {
+        const chunk = buffer.slice(offset, offset + CHUNK_SIZE);
+
+        // Backpressure check
+        if (dataChannel.bufferedAmount > 10 * 1024 * 1024) {
+          await new Promise(r => setTimeout(r, 50));
+        }
+
+        dataChannel.send(chunk);
+        offset += chunk.byteLength;
+
+        updateTransferProgress(fileId, offset, file.size);
+
+        // Yield to UI
+        if (offset % (CHUNK_SIZE * 5) === 0) await new Promise(r => setTimeout(r, 0));
+      }
+
+      markTransferComplete(fileId);
+    }
+
+    // UI Helpers
+    function createTransferUI(id, name, size, direction) {
+      document.getElementById('no-transfers').style.display = 'none';
+      const container = document.getElementById('wan-transfers-container');
+
+      const div = document.createElement('div');
+      div.id = `tx-${id}`;
+      div.style = "background: rgba(255,255,255,0.05); padding: 10px; border-radius: 5px; display: flex; align-items: center; gap: 10px;";
+      div.innerHTML = `
+            <div style="font-size: 1.5em;">${direction === 'in' ? '⬇️' : '⬆️'}</div>
+            <div style="flex: 1;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                    <span style="font-weight: bold; color:white;">${name}</span>
+                    <span style="font-size: 0.8em; color: #aaa;">${formatBytes(size)}</span>
+                </div>
+                <div style="width: 100%; height: 5px; background: #333; border-radius: 3px; overflow: hidden;">
+                    <div class="progress-bar" style="width: 0%; height: 100%; background: ${direction === 'in' ? '#0099ff' : '#00ff99'}; transition: width 0.1s;"></div>
+                </div>
+            </div>
+            <div class="status-icon">⏳</div>
+        `;
+      container.prepend(div);
+    }
+
+    function updateTransferProgress(id, loaded, total) {
+      const el = document.getElementById(`tx-${id}`);
+      if (el) {
+        const pct = (loaded / total) * 100;
+        el.querySelector('.progress-bar').style.width = `${pct}%`;
+      }
+    }
+
+    function markTransferComplete(id) {
+      const el = document.getElementById(`tx-${id}`);
+      if (el) el.querySelector('.status-icon').textContent = "✅";
+    }
+
+    // --- Network Monitoring Logic ---
+
+    // 1. Listen for Connected Users Updates
+    socket.on('update_users', (users) => {
+      renderConnectedUsers(users);
+    });
+
+    function renderConnectedUsers(users) {
+      const container = document.getElementById('connected-peers-list');
+      if (!container) return;
+
+      container.innerHTML = '';
+
+      if (users.length === 0) {
+        container.innerHTML = '<p style="color: #aaa;">No peers connected.</p>';
+        return;
+      }
+
+      users.forEach(user => {
+        const div = document.createElement('div');
+        div.className = 'peer-badge';
+        // Check if blocked
+        const isBlocked = user.is_blocked;
+        const opacity = isBlocked ? '0.5' : '1';
+        const color = isBlocked ? '#ff4d4d' : 'white';
+
+        div.style = `background: rgba(255,255,255,0.1); padding: 5px 10px; border-radius: 20px; display: flex; align-items: center; gap: 10px; border: 1px solid #00ffe7; opacity: ${opacity};`;
+
+        // Host controls
+        let controls = '';
+        if (window.IS_HOST && user.ip) {
+          controls = `
+                <label class="switch" style="transform: scale(0.7);">
+                  <input type="checkbox" ${!isBlocked ? 'checked' : ''} onchange="toggleBlock('${user.ip}')">
+                  <span class="slider round"></span>
+                </label>
+             `;
+        }
+
+        div.innerHTML = `
+                <span style="font-size: 1.2em;">👤</span>
+                <span style="color: ${color}; font-weight: bold;">${user.username} <span style="font-size:0.8em; color:#aaa;">(${user.ip || '?'})</span></span>
+                ${controls}
+            `;
+        container.appendChild(div);
+      });
+    }
+
+    function toggleBlock(ip) {
+      fetch('/api/toggle_block', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ip: ip })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.error) alert(data.error);
+          // UI updates automatically via socket broadcast
+        })
+        .catch(console.error);
+    }
+
+    // 2. Listen for New Logs
+    socket.on('new_log', (log) => {
+      addLogToUI(log);
+    });
+
+    function addLogToUI(log) {
+      const container = document.getElementById('activity-logs-list');
+      if (!container) return;
+
+      const div = document.createElement('div');
+      div.style = 'background: rgba(0,0,0,0.2); padding: 5px; border-radius: 4px; border-left: 2px solid orange;';
+      div.innerHTML = `
+            <span style="color: #888; font-size: 0.8em;">[${log.timestamp}]</span>
+            <strong style="color: #00ffe7;">${log.username}</strong>:
+            <span style="color: #ddd;">${log.action}</span> - 
+            <span style="color: #aaa;">${log.details}</span>
+        `;
+
+      container.prepend(div);
+    }
+
+    // 3. Initial Fetch
+    async function fetchInitialData() {
+      // Fetch Users
+      try {
+        const res = await fetch('/api/connected_users');
+        const data = await res.json();
+        if (data.users) renderConnectedUsers(data.users);
+      } catch (e) { console.error("Failed to fetch users", e); }
+
+      // Fetch Logs
+      const logContainer = document.getElementById('activity-logs-list');
+      if (logContainer) {
+        try {
+          const res = await fetch('/api/get_logs');
+          if (!res.ok) throw new Error("API Error");
+          const data = await res.json();
+
+          logContainer.innerHTML = ''; // Clear "Loading..."
+
+          if (data.logs && data.logs.length > 0) {
+            data.logs.forEach(log => {
+              const div = document.createElement('div');
+              div.style = 'background: rgba(0,0,0,0.2); padding: 5px; border-radius: 4px; border-left: 2px solid orange; margin-bottom: 5px;';
+              div.innerHTML = `
+                             <span style="color: #888; font-size: 0.8em;">[${log.timestamp}]</span>
+                             <strong style="color: #00ffe7;">${log.username}</strong>:
+                             <span style="color: #ddd;">${log.action}</span> - 
+                             <span style="color: #aaa;">${log.details}</span>
+                         `;
+              logContainer.appendChild(div);
+            });
+          } else {
+            logContainer.innerHTML = '<p style="color: #aaa; font-style: italic;">No activity logs yet.</p>';
+          }
+        } catch (e) {
+          console.error("Failed to fetch logs", e);
+          logContainer.innerHTML = '<p style="color: #ff4d4d; font-style: italic;">Failed to load logs.</p>';
+        }
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', fetchInitialData);
+
+  </script>
+
+
+  <!-- Main Workspace (Hidden until connected) -->
+
+
+  <!-- State: Not Connected Placeholder -->
+  <div id="not-connected-placeholder"
+    style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #666;">
+    <div style="font-size: 4rem; opacity: 0.3;">🔗</div>
+    <p style="font-size: 1.2em; margin-top: 20px;">Enter an ID and click Link to start sharing</p>
+  </div>
+
+  </div>
+  </div>
+
+  <!-- QR Code Modal -->
+  <!-- Network Modal -->
+  <div id="networkModal" class="modal" onclick="closeNetworkModal()">
+    <div class="upload-content" onclick="event.stopPropagation()" style="max-width: 800px; width: 90%;">
+      <h3 style="margin-bottom: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px;">👥 Network
+        Status</h3>
+
+      <div class="network-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+
+        <!-- Connected Members -->
+        <div class="monitor-card"
+          style="background: rgba(0,0,0,0.3); padding: 20px; border-radius: 10px; border: 1px solid rgba(0,255,231,0.2);">
+          <h3 style="color: #00ffe7; margin-bottom: 15px; font-size: 1.1em;">Connected Peers</h3>
+          <div id="connected-peers-list" style="display: flex; flex-wrap: wrap; gap: 10px; min-height: 50px;">
+            <!-- Peers injected here -->
+            <p style="color: #aaa; font-style: italic;">Waiting for peers...</p>
+          </div>
+        </div>
+
+        <!-- Activity Logs (Visible to Everyone, but focused for Host) -->
+        <div class="monitor-card"
+          style="background: rgba(0,0,0,0.3); padding: 20px; border-radius: 10px; border: 1px solid rgba(255,165,0,0.2);">
+          <h3 style="color: orange; margin-bottom: 15px; font-size: 1.1em;">Activity Logs</h3>
+          <div id="activity-logs-list"
+            style="height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.9em; display: flex; flex-direction: column; gap: 5px;">
+            <!-- Logs injected here -->
+            <p style="color: #aaa; font-style: italic;">Loading logs...</p>
+          </div>
+        </div>
+
+      </div>
+
+      <button onclick="closeNetworkModal()" class="cta-btn" style="width: 100%; margin-top: 20px;">Close</button>
+    </div>
+  </div>
+
+  <div id="qrModal" class="modal" onclick="closeQrModal()">
+    <div class="upload-content" onclick="event.stopPropagation()" style="text-align: center;">
+      <h3 style="margin-bottom: 10px;">📱 Connect Mobile</h3>
+      <p style="color: #aaa; margin-bottom: 20px;">Scan to connect specific device</p>
+
+      <div style="background: white; padding: 20px; display: inline-block; border-radius: 10px; margin-bottom: 20px;">
+        <img src="{{ url_for('get_qrcode') }}" alt="QR Code" style="width: 200px; height: 200px; display: block;">
+      </div>
+
+      <div
+        style="background: rgba(255, 255, 255, 0.1); padding: 10px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between;">
+        <code style="color: #00ffe7; font-size: 1.1em;">{{ server_url }}</code>
+        <button class="copy-btn" onclick="copyLink()"
+          style="background: transparent; border: 1px solid #00ffe7; color: #00ffe7; padding: 5px 10px; border-radius: 5px; cursor: pointer; margin-left: 10px;">📋
+          Copy</button>
+      </div>
+
+      <!-- Sharing Toggle -->
+      <div class="sharing-toggle-container" style="margin-bottom: 20px;">
+        <button id="sharingToggleBtn" onclick="toggleSharing()" class="cta-btn"
+          style="width: 100%; background: {{ '#00ff00' if sharing_enabled else '#ff4d4d' }}; color: black;">
+          Network Sharing: {{ 'ON' if sharing_enabled else 'OFF' }}
+        </button>
+        <p style="font-size: 0.8em; color: #aaa; margin-top: 5px;">
+          {{ 'Visible to everyone' if sharing_enabled else 'Only visible to you (Localhost)' }}
+        </p>
+      </div>
+
+      <button onclick="closeQrModal()" class="cta-btn" style="width: 100%;">Close</button>
+    </div>
+  </div>
+
+  </div>
+  </div>
+
+  <!-- Profile Settings Modal -->
+  <div id="profileModal" class="modal" onclick="closeProfileModal()">
+    <div class="upload-content" onclick="event.stopPropagation()">
+      <h3>✏️ Edit Profile</h3>
+      <form action="{{ url_for('update_profile') }}" method="post" enctype="multipart/form-data">
+        <div class="form-group profile-form-group">
+          <label>Display Name</label>
+          <input type="text" name="username" value="{{ username }}" required>
+        </div>
+        <div class="form-group profile-form-group">
+          <label>Email</label>
+          <input type="email" name="email" value="{{ email }}" placeholder="user@example.com">
+        </div>
+        <div class="form-group profile-form-group">
+          <label>New Password</label>
+          <input type="password" name="password" placeholder="Leave blank to keep current">
+        </div>
+        <div class="form-group profile-form-group">
+          <label>Profile Picture</label>
+          <label for="avatar-upload" class="custom-file-upload" style="width:100%; text-align:center;">
+            📸 Choose New Avatar
+          </label>
+          <input id="avatar-upload" type="file" name="avatar" accept="image/*"
+            onchange="document.getElementById('avatar-name').textContent = this.files[0].name">
+          <span id="avatar-name" style="display:block; color:#aaa; font-style:italic; margin-top:5px;"></span>
+        </div>
+        <button type="submit" class="cta-btn" style="width: 100%;">Save Changes</button>
+      </form>
+      <button onclick="closeProfileModal()" class="secondary-btn"
+        style="margin-top: 10px; width: 100%; border: none; font-size: 0.9em; color: #aaa;">Cancel</button>
+    </div>
+  </div>
+
+  </div>
+  </div>
+
+
+
+  <!-- Upload Modal -->
+  <div id="uploadModal" class="modal" onclick="closeUploadModal()">
+    <div class="upload-content" onclick="event.stopPropagation()">
+      <h3>Upload File</h3>
+      <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
+        <label for="file-upload" class="custom-file-upload" id="drop-zone">
+          <div style="font-size: 3rem; margin-bottom: 10px;">📂</div>
+          <span>Click to Choose Files<br><span style="font-size: 0.8em; opacity: 0.8;">or Drag & Drop Here</span></span>
+        </label>
+        <input id="file-upload" type="file" name="file" multiple onchange="updateFileName()">
+        <span id="file-name">No file chosen</span>
+        <button type="submit" class="cta-btn" style="margin-top: 20px; width: 100%;">Upload Now</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Image Preview Modal -->
+  <div id="imageModal" class="modal" onclick="closeModal()">
+    <span class="close">&times;</span>
+    <img class="modal-content" id="img01" onclick="event.stopPropagation()">
+    <div class="zoom-controls" onclick="event.stopPropagation()">
+      <button class="zoom-btn" onclick="zoomOut()">−</button>
+      <button class="zoom-btn" onclick="resetZoom()">↻</button>
+      <button class="zoom-btn" onclick="zoomIn()">+</button>
+    </div>
+  </div>
+
+  <script>
+    var currentZoom = 1;
+    window.IS_HOST = {{ 'false' if is_network_client else 'true' }};
+
+    function openTab(evt, tabName) {
+      var i, tabcontent, tablinks;
+
+      // Hide all elements with class="tab-content"
+      tabcontent = document.getElementsByClassName("tab-content");
+      for (i = 0; i < tabcontent.length; i++) {
+        tabcontent[i].style.display = "none";
+      }
+
+      // Get all elements with class="nav-tab" and remove the class "active"
+      tablinks = document.getElementsByClassName("nav-tab");
+      for (i = 0; i < tablinks.length; i++) {
+        tablinks[i].className = tablinks[i].className.replace(" active", "");
+      }
+
+      // Show the current tab, and add an "active" class to the button that opened the tab
+      document.getElementById(tabName).style.display = "block";
+      evt.currentTarget.className += " active";
+    }
+
+    function openModal(src) {
+      var modal = document.getElementById("imageModal");
+      var modalImg = document.getElementById("img01");
+      modal.style.display = "flex";
+      modalImg.src = src;
+      resetZoom();
+    }
+
+    function closeModal() {
+      var modal = document.getElementById("imageModal");
+      modal.style.display = "none";
+    }
+
+    function zoomIn() {
+      currentZoom += 0.2;
+      updateZoom();
+    }
+
+    function zoomOut() {
+      if (currentZoom > 0.4) {
+        currentZoom -= 0.2;
+        updateZoom();
+      }
+    }
+
+    function resetZoom() {
+      currentZoom = 1;
+      updateZoom();
+    }
+
+    function updateZoom() {
+      var modalImg = document.getElementById("img01");
+      modalImg.style.transform = "scale(" + currentZoom + ")";
+    }
+
+    function filterFiles(type) {
+      var cards = document.getElementsByClassName("file-card");
+      var btns = document.getElementsByClassName("filter-btn");
+
+      // Update active button
+      for (var i = 0; i < btns.length; i++) {
+        btns[i].classList.remove("active");
+        if (btns[i].textContent.toLowerCase().includes(type) || (type === 'all' && btns[i].textContent === 'All')) {
+          btns[i].classList.add("active");
+        }
+      }
+
+      // Filter cards
+      for (var i = 0; i < cards.length; i++) {
+        var cardType = cards[i].getAttribute("data-type");
+        if (type === 'all' || cardType === type) {
+          cards[i].style.display = "flex";
+        } else {
+          cards[i].style.display = "none";
+        }
+      }
+    }
+
+    // Upload Modal Functions
+    function openUploadModal() {
+      document.getElementById('uploadModal').style.display = 'flex';
+    }
+
+    function closeUploadModal() {
+      document.getElementById('uploadModal').style.display = 'none';
+    }
+
+    function updateFileName() {
+      var input = document.getElementById('file-upload');
+      if (input.files.length > 1) {
+        document.getElementById('file-name').textContent = input.files.length + " files selected";
+      } else {
+        var fileName = input.files.length > 0 ? input.files[0].name : "No file chosen";
+        document.getElementById('file-name').textContent = fileName;
+      }
+    }
+
+    // Drag and Drop Logic
+    document.addEventListener('DOMContentLoaded', function () {
+      const dropZone = document.getElementById('drop-zone');
+      const fileInput = document.getElementById('file-upload');
+
+      if (dropZone && fileInput) {
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+          dropZone.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+          dropZone.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+          dropZone.addEventListener(eventName, unhighlight, false);
+        });
+
+        function highlight(e) {
+          dropZone.classList.add('drag-over');
+        }
+
+        function unhighlight(e) {
+          dropZone.classList.remove('drag-over');
+        }
+
+        dropZone.addEventListener('drop', handleDrop, false);
+
+        function handleDrop(e) {
+          const dt = e.dataTransfer;
+          const files = dt.files;
+
+          if (files.length > 0) {
+            fileInput.files = files;
+            updateFileName();
+          }
+        }
+      }
+    });
+  </script>
+
+  <!--  Footer About Section -->
+  <footer class="footer">
+    <div class="footer-about">
+      <h2>About Local Send</h2>
+      <p>
+        Local Send is a sleek, secure, and futuristic file-sharing portal built for fast local transfers. Designed with
+        simplicity and style in mind, it supports media previews, direct downloads, and easy device access.
+      </p>
+      <p class="footer-note">
+        <span
+          style="font-weight:bold; color:#00ffe7; font-family:'Orbitron', sans-serif; letter-spacing:1px; font-size:1.1em;">
+          Created by <strong><a href="https://kuddus1654.github.io/sk-ml/" target="_blank" rel="noopener"
+              style="color:#ff00a6; text-decoration:none;">aks0.dev</a></strong> • Powered by Flask • Inspired by speed
+          and minimalism.
+        </span>
+      </p>
+    </div>
+  </footer>
+
+
+
+  <script>
+    function openQrModal() {
+      document.getElementById('qrModal').style.display = 'flex';
+    }
+    function closeQrModal() {
+      document.getElementById('qrModal').style.display = 'none';
+    }
+
+    function openNetworkModal() {
+      document.getElementById('networkModal').style.display = 'flex';
+      fetchInitialData();
+    }
+    function closeNetworkModal() {
+      document.getElementById('networkModal').style.display = 'none';
+    }
+
+    function openProfileModal() {
+      document.getElementById('profileModal').style.display = 'flex';
+    }
+    function closeProfileModal() {
+      document.getElementById('profileModal').style.display = 'none';
+    }
+
+    // Toggle Dropdown
+    document.querySelector('.profile-btn').addEventListener('click', function (e) {
+      e.stopPropagation();
+      var dropdown = document.getElementById("profileDropdown");
+      dropdown.classList.toggle("show");
+    });
+
+    // Close Dropdown on outside click
+    window.onclick = function (event) {
+      if (!event.target.matches('.profile-btn') && !event.target.matches('.profile-btn *')) {
+        var dropdowns = document.getElementsByClassName("dropdown-content");
+        for (var i = 0; i < dropdowns.length; i++) {
+          var openDropdown = dropdowns[i];
+          if (openDropdown.classList.contains('show')) {
+            openDropdown.classList.remove('show');
+          }
+        }
+      }
+    }
+
+    function copyLink() {
+      copyToClipboard("{{ server_url }}", document.querySelector('.copy-btn'));
+    }
+
+    function copyToClipboard(text, btnElement) {
+      navigator.clipboard.writeText(text).then(function () {
+        if (btnElement) {
+          var originalText = btnElement.innerHTML;
+          btnElement.innerHTML = "✅";
+          setTimeout(function () {
+            btnElement.innerHTML = originalText;
+          }, 2000);
+        } else {
+          alert("Copied to clipboard!");
+        }
+      }, function (err) {
+        console.error('Async: Could not copy text: ', err);
+      });
+    }
+
+    function toggleSharing() {
+      fetch('/api/toggle_share', { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+          if (data.error) {
+            alert(data.error);
+            return;
+          }
+          const btn = document.getElementById('sharingToggleBtn');
+          const isEnabled = data.sharing_enabled;
+
+          btn.textContent = 'Network Sharing: ' + (isEnabled ? 'ON' : 'OFF');
+          btn.style.background = isEnabled ? '#00ff00' : '#ff4d4d';
+
+          // Optional: Reload page to update the dashboard view for the host simply
+          // to show consistency, although host always sees everything.
+          // But if we want to update the "Visible to everyone" text immediately
+          location.reload();
+        })
+        .catch(err => console.error('Error toggling share:', err));
+    }
+
+    function deleteFile(filename) {
+      if (confirm("Are you sure you want to delete '" + filename + "'? This cannot be undone.")) {
+        fetch('/delete/' + filename, { method: 'POST' })
+          .then(response => {
+            if (response.redirected) {
+              window.location.href = response.url;
+            } else {
+              location.reload();
+            }
+          })
+          .catch(err => console.error('Error deleting file:', err));
+      }
+    }
+
+    // --- Upload Logic ---
+
+    function handleRemoteFileSelect(input) {
+      if (input.files && input.files.length > 0) {
+        uploadToRemote(input.files);
+      }
+    }
+
+
+
+    // Register my ID on load
+    document.addEventListener('DOMContentLoaded', () => {
+      const myIdElement = document.getElementById('my-connection-id');
+      if (myIdElement) {
+        const myId = myIdElement.textContent.trim();
+        fetch('/api/set_id', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: myId })
+        }).catch(console.error);
+      }
+    });
+
+    // --- Text Sharing Functions ---
+
+    function shareText(text) {
+      if (!text && text !== "") return; // Allow empty string to clear, but not null/undefined if passed explicitly
+
+      // If clearing, update input too if not already empty
+      if (text === "" && document.getElementById('hostText')) {
+        document.getElementById('hostText').value = "";
+      }
+
+      fetch('/api/share_text', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ text: text })
+      })
+        .then(response => response.json())
+        .then(data => {
+          if (data.status === 'success') {
+            const status = document.getElementById('shareStatus');
+            status.textContent = "Text Shared Successfully!";
+            status.style.opacity = 1;
+            setTimeout(() => { status.style.opacity = 0; }, 2000);
+          }
+        })
+        .catch(err => console.error('Error sharing text:', err));
+    }
+
+    function copySharedText() {
+      const textElement = document.getElementById('clientTextDisplay');
+      if (!textElement) return;
+
+      const textToCopy = textElement.textContent;
+      if (textToCopy === 'No text shared yet...') return;
+
+      navigator.clipboard.writeText(textToCopy).then(() => {
+        alert("Text copied to clipboard! 📋");
+      }).catch(err => {
+        console.error('Failed to copy: ', err);
+        alert("Failed to copy text. Please select and copy manually.");
+      });
+    }
+
+    // Poll for text updates (simple polling)
+    setInterval(() => {
+      // Only poll if tab is visible to save resources, or just always poll lightly
+      if (document.visibilityState === 'visible') {
+        fetch('/api/get_text')
+          .then(res => {
+            if (res.status === 403) return null; // Sharing disabled
+            return res.json();
+          })
+          .then(data => {
+            if (!data) return;
+            if (data.text !== undefined) {
+              // Update Client View
+              const display = document.getElementById('clientTextDisplay');
+              if (display) {
+                if (display.textContent !== data.text && !(display.textContent === 'No text shared yet...' && data.text === '')) {
+                  display.textContent = data.text || 'No text shared yet...';
+                }
+              }
+              // Update Host View input if exists and not focused
+              const hostInput = document.getElementById('hostText');
+              if (hostInput && document.activeElement !== hostInput && hostInput.value !== data.text) {
+                hostInput.value = data.text;
+              }
+            }
+          })
+          .catch(err => console.error('Error polling text:', err));
+
+        fetchFiles();
+      }
+    }, 3000); // Check every 3 seconds
+
+    // --- File Polling Logic ---
+    function fetchFiles() {
+      if (location.pathname !== '/dashboard') return; // Only run on dashboard
+
+      fetch('/api/files')
+        .then(res => {
+          if (res.status === 403) return null;
+          return res.json();
+        })
+        .then(data => {
+          if (!data || !data.files) return;
+          updateFileGallery(data.files);
+        })
+        .catch(err => console.error('Error polling files:', err));
+    }
+
+    function updateFileGallery(files) {
+      const galleries = document.querySelectorAll('.file-gallery');
+      if (galleries.length === 0) return;
+
+      galleries.forEach(gallery => {
+        // 1. Mark all existing cards in this gallery
+        const existingCards = Array.from(gallery.getElementsByClassName('file-card'));
+        const existingNames = new Set(existingCards.map(c => c.querySelector('.file-name').textContent.trim()));
+        const newNames = new Set(files.map(f => f.name));
+
+        // 2. Remove files that no longer exist
+        existingCards.forEach(card => {
+          const name = card.querySelector('.file-name').textContent.trim();
+          if (!newNames.has(name)) {
+            card.remove();
+          }
+        });
+
+        // 3. Add new files
+        files.forEach(file => {
+          if (!existingNames.has(file.name)) {
+            const card = createFileCard(file);
+            gallery.appendChild(card);
+
+            // Remove loading text if present
+            const loadingText = gallery.querySelector('p');
+            if (loadingText && loadingText.textContent === 'Loading files...') {
+              loadingText.remove();
+            }
+          }
+        });
+      });
+
+      // Optionally re-apply filters if active
+      // (Currently filterFiles just hides/shows, so new cards should respect current filter if we called it, 
+      //  but for simplicity we just append. To be perfect we'd check active filter.)
+      const activeFilterBtn = document.querySelector('.filter-btn.active');
+      if (activeFilterBtn) {
+        const filterType = activeFilterBtn.textContent.toLowerCase();
+        // If Text is 'All', type is 'all'. Else match.
+        // (Logic in filterFiles: "All" -> 'all', "Images" -> 'image', etc.)
+        // reverse map or just re-click the button?
+        // Simplest: just run filterFiles again with current type
+        // But we need to know the type string argument.
+        // We can store it in a variable or just infer.
+        // Let's just default to showing all for now or let user click. 
+        // Actually, let's call filterFiles with inferred type.
+        let typeArg = 'all';
+        if (activeFilterBtn.textContent === 'Images') typeArg = 'image';
+        else if (activeFilterBtn.textContent === 'Videos') typeArg = 'video';
+        else if (activeFilterBtn.textContent === 'Audio') typeArg = 'audio';
+        else if (activeFilterBtn.textContent === 'Apps') typeArg = 'app';
+        else if (activeFilterBtn.textContent === 'Docs') typeArg = 'pdf';
+
+        filterFiles(typeArg);
+      }
+    }
+
+    function createFileCard(file) {
+      const div = document.createElement('div');
+      div.className = 'file-card';
+      div.setAttribute('data-type', file.type);
+      div.setAttribute('data-extension', file.extension);
+
+      let previewHtml = '';
+      const encodedName = encodeURIComponent(file.name);
+      // Using view_file route: /view/<filename>
+      const viewUrl = `/view/${encodedName}`;
+      const downloadUrl = `/download/${encodedName}`;
+
+      if (file.type === 'image') {
+        previewHtml = `<img src="${viewUrl}" alt="${file.name}" loading="lazy">`;
+      } else if (file.type === 'pdf') {
+        previewHtml = `<iframe src="${viewUrl}" title="PDF preview" frameborder="0"></iframe>`;
+      } else if (file.type === 'video') {
+        if (file.name.endsWith('.mkv')) {
+          previewHtml = `
+                <div class="fallback-preview">
+                  <p class="unsupported">MKV preview not supported</p>
+                  <a href="${downloadUrl}" class="download-btn">Download MKV</a>
+                </div>`;
+        } else {
+          previewHtml = `
+                <video controls preload="metadata">
+                  <source src="${viewUrl}" type="video/mp4">
+                  Your browser does not support the video tag.
+                </video>`;
+        }
+      } else if (file.type === 'audio') {
+        previewHtml = `
+            <audio controls preload="none">
+              <source src="${viewUrl}" type="audio/mpeg">
+              Your browser does not support the audio tag.
+            </audio>`;
+      } else if (file.type === 'app') {
+        previewHtml = '<div class="app-icon">📦</div>';
+      } else {
+        previewHtml = '<div class="file-icon">📄</div>';
+      }
+
+      // Logic to determine if delete button should be shown
+      // We can pass 'is_network_client' via a global JS var or check cookie?
+      // Simpler: Just render it conditionally.
+      // Wait, JS doesn't know template variables.
+      // We can check a global var that we set in the template.
+      // Let's add that at top of script.
+
+      const deleteBtnHtml = window.IS_HOST ? `
+          <button class="delete-btn" onclick="deleteFile('${file.name}')"
+            style="background:none; border:none; cursor:pointer; font-size:1.2em; margin-left:10px;"
+            title="Delete File">🗑️</button>` : '';
+
+      const previewBtnHtml = file.type === 'image' ?
+        `<button class="preview-btn" onclick="openModal('${viewUrl}')">👁️ Preview</button>` : '';
+
+      div.innerHTML = `
+            ${previewHtml}
+            <div class="file-info">
+              <span class="file-name">${file.name}</span>
+            </div>
+            <div class="card-actions">
+              <a href="${downloadUrl}" class="download-btn">⬇️ Download</a>
+              ${previewBtnHtml}
+              ${deleteBtnHtml}
+            </div>
+        `;
+      return div;
+    }
+  </script>
+
+</body>
+
+</html>

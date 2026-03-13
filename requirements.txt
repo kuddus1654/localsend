@@ -1,0 +1,8 @@
+flask
+waitress
+qrcode
+flask-socketio
+eventlet
+Pillow
+mysql-connector-python
+gunicorn
